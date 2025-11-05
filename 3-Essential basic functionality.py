@@ -774,6 +774,7 @@ print(tsdf.agg({"A": ["mean", "min"], "B": "sum"}))
 # built in describe function.
 
 from functools import partial
+
 q_25 = partial(pd.Series.quantile, q=0.25)
 q_25.__name__ = "25%"
 q_75 = partial(pd.Series.quantile, q=0.75)
@@ -876,7 +877,6 @@ s = pd.Series(np.random.randn(5), index=["a", "b", "c", "d", "e"])
 print(s)
 print(s.reindex(["e", "b", "f", "d"]))
 
-
 # Here, the f label was not contained in the Series and hence appears as NaN in the result.
 #
 # With a DataFrame, you can simultaneously reindex the index and columns:
@@ -938,7 +938,7 @@ print(df.reindex_like(df2))
 s = pd.Series(np.random.randn(5), index=["a", "b", "c", "d", "e"])
 s1 = s[:4]
 s2 = s[1:]
-print("s",s)
+print("s", s)
 print(s1)
 print(s2)
 print(s1.align(s2))
@@ -1152,3 +1152,577 @@ print(df_orig["int"].dtype)
 # To preserve dtypes while iterating over the rows, it is better to use itertuples()
 # which returns namedtuples of the values and which is generally much faster than iterrows().
 
+# For instance, a contrived way to transpose the DataFrame would be:
+
+df2 = pd.DataFrame({"x": [1, 2, 3], "y": [4, 5, 6]})
+print(df2)
+print(df2.T)
+df2_t = pd.DataFrame({idx: values for idx, values in df2.iterrows()})
+print(df2_t)
+
+# itertuples
+
+# The itertuples() method will return an iterator yielding a namedtuple for each row in the DataFrame.
+# The first element of the tuple will be the row’s corresponding index value, while the remaining
+# values are the row values.
+#
+# For instance:
+
+for row in df.itertuples():
+    print(row)
+
+# This method does not convert the row to a Series object; it merely returns the values inside a namedtuple.
+# Therefore, itertuples() preserves the data type of the values and is generally faster as iterrows().
+
+# The column names will be renamed to positional names if they are invalid Python identifiers, repeated,
+# or start with an underscore. With a large number of columns (>255), regular tuples are returned.
+
+##############################################################
+# .dt accessor
+##############################################################
+
+# Series has an accessor to succinctly return datetime like properties for the values of the Series,
+# if it is a datetime/period like Series. This will return a Series, indexed like the existing Series.
+
+s = pd.Series(pd.date_range("20130101 09:10:12", periods=4))
+print(s)
+print(s.dt.hour)
+print(s.dt.second)
+print(s.dt.day)
+
+# This enables nice expressions like this:
+print(s[s.dt.day == 2])
+
+# You can easily produces tz aware transformations:
+stz = s.dt.tz_localize("US/Eastern")
+print(stz)
+print(stz.dt.tz)
+
+# You can also chain these types of operations:
+print(s.dt.tz_localize("UTC").dt.tz_convert("US/Eastern"))
+
+# You can also format datetime values as strings with Series.dt.strftime() which supports
+# the same format as the standard strftime().
+s = pd.Series(pd.date_range("20130101", periods=4))
+print(s)
+print(s.dt.strftime("%Y/%m/%d"))
+
+s = pd.Series(pd.period_range("20130101", periods=4))
+print(s.dt.strftime("%Y/%m/%d"))
+
+# The .dt accessor works for period and timedelta dtypes.
+s = pd.Series(pd.period_range("20130101", periods=4, freq="D"))
+print(s)
+print(s.dt.year)
+print(s.dt.day)
+
+s = pd.Series(pd.timedelta_range("1 day 00:00:05", periods=4, freq="s"))
+print(s)
+print(s.dt.days)
+print(s.dt.seconds)
+print(s.dt.components)
+
+# Series.dt will raise a TypeError if you access with a non-datetime-like values.
+
+##############################################################
+# Vectorized string methods
+##############################################################
+
+# Series is equipped with a set of string processing methods that make it easy to operate on each
+# element of the array. Perhaps most importantly, these methods exclude missing/NA values automatically.
+# These are accessed via the Series’s str attribute and generally have names matching the equivalent
+# (scalar) built-in string methods. For example:
+
+s = pd.Series(
+    ["A", "B", "C", "Aaba", "Baca", np.nan, "CABA", "dog", "cat"], dtype="string"
+)
+print(s.str.lower())
+
+# Powerful pattern-matching methods are provided as well, but note that pattern-matching generally uses
+# regular expressions by default (and in some cases always uses them).
+
+# Prior to pandas 1.0, string methods were only available on object -dtype Series. pandas 1.0 added
+# the StringDtype which is dedicated to strings. See Text data types for more.
+
+# Please see Vectorized String Methods for a complete description.
+
+##############################################################
+# Sorting
+##############################################################
+
+# pandas supports three kinds of sorting: sorting by index labels, sorting by column values, and
+# sorting by a combination of both.
+
+# By index
+
+# The Series.sort_index() and DataFrame.sort_index() methods are used to sort a pandas object
+# by its index levels.
+
+df = pd.DataFrame(
+    {
+        "one": pd.Series(np.random.randn(3), index=["a", "b", "c"]),
+        "two": pd.Series(np.random.randn(4), index=["a", "b", "c", "d"]),
+        "three": pd.Series(np.random.randn(3), index=["b", "c", "d"]),
+    }
+)
+unsorted_df = df.reindex(
+    index=["a", "d", "c", "b"], columns=["three", "two", "one"]
+)
+print(unsorted_df)
+print(unsorted_df.sort_index())
+print(unsorted_df.sort_index(ascending=False))
+print(unsorted_df.sort_index(axis=1))
+print(unsorted_df["three"].sort_index())
+
+# Sorting by index also supports a key parameter that takes a callable function to apply to
+# the index being sorted. For MultiIndex objects, the key is applied per-level to the levels
+# specified by level.
+
+s1 = pd.DataFrame({"a": ["B", "a", "C"], "b": [1, 2, 3], "c": [2, 3, 4]}).set_index(
+    list("ab")
+)
+print(s1)
+print(s1.sort_index(level="a"))
+print(s1.sort_index(level="a", key=lambda idx: idx.str.lower()))
+
+# For information on key sorting by value, see value sorting.
+
+# By values
+
+# The Series.sort_values() method is used to sort a Series by its values.
+# The DataFrame.sort_values() method is used to sort a DataFrame by its column or row values.
+# The optional by parameter to DataFrame.sort_values() may used to specify one or more columns
+# to use to determine the sorted order.
+
+df1 = pd.DataFrame(
+    {"one": [2, 1, 1, 1], "two": [1, 3, 2, 4], "three": [5, 4, 3, 2]}
+)
+print(df1.sort_values(by="two"))
+
+# The by parameter can take a list of column names, e.g.:
+print(df1[["one", "two", "three"]].sort_values(by=["one", "two"]))
+
+# These methods have special treatment of NA values via the na_position argument:
+s[2] = np.nan
+print(s.sort_values())
+print(s.sort_values(na_position="first"))
+
+# Sorting also supports a key parameter that takes a callable function to apply to the values being sorted.
+s1 = pd.Series(["B", "a", "C"])
+print(s1.sort_values(key=lambda x: x.str.lower()))
+
+# key will be given the Series of values and should return a Series or array of the same shape
+# with the transformed values. For DataFrame objects, the key is applied per column, so the key
+# should still expect a Series and return a Series, e.g.
+
+df = pd.DataFrame({"a": ["B", "a", "C"], "b": [1, 2, 3]})
+print(df.sort_values(by="a"))
+print(df.sort_values(by="a", key=lambda col: col.str.lower()))
+
+# By indexes and values
+
+# Strings passed as the by parameter to DataFrame.sort_values() may refer to either columns or
+# index level names.
+
+idx = pd.MultiIndex.from_tuples(
+    [("a", 1), ("a", 2), ("a", 2), ("b", 2), ("b", 1), ("b", 1)]
+)
+idx.names = ["first", "second"]
+df_multi = pd.DataFrame({"A": np.arange(6, 0, -1)}, index=idx)
+print(df_multi)
+
+# Sort by ‘second’ (index) and ‘A’ (column)
+print(df_multi.sort_values(by=["second", "A"]))
+
+# If a string matches both a column name and an index level name then a warning is issued and the
+# column takes precedence. This will result in an ambiguity error in a future version.
+
+# searchsorted
+
+# Series has the searchsorted() method, which works similarly to numpy.ndarray.searchsorted().
+
+ser = pd.Series([1, 2, 3])
+print(ser.searchsorted([0, 3]))
+print(ser.searchsorted([0, 4]))
+print(ser.searchsorted([1, 3], side="right"))
+print(ser.searchsorted([1, 3], side="left"))
+ser = pd.Series([3, 1, 2])
+print(ser.searchsorted([0, 3], sorter=np.argsort(ser)))
+
+# smallest / largest values
+
+# Series has the nsmallest() and nlargest() methods which return the smallest or largest n values.
+# For a large Series this can be much faster than sorting the entire Series and calling head(n) on
+# the result.
+
+s = pd.Series(np.random.permutation(10))
+print(s)
+print(s.sort_values())
+print(s.nsmallest(3))
+print(s.nlargest(3))
+
+# DataFrame also has the nlargest and nsmallest methods.
+df = pd.DataFrame(
+    {
+        "a": [-2, -1, 1, 10, 8, 11, -1],
+        "b": list("abdceff"),
+        "c": [1.0, 2.0, 4.0, 3.2, np.nan, 3.0, 4.0],
+    }
+)
+print(df.nlargest(3, "a"))
+print(df.nlargest(5, ["a", "c"]))
+print(df.nsmallest(3, "a"))
+print(df.nsmallest(5, ["a", "c"]))
+
+# Sorting by a MultiIndex column
+
+# You must be explicit about sorting when the column is a MultiIndex, and fully specify all levels to by.
+
+df1.columns = pd.MultiIndex.from_tuples(
+    [("a", "one"), ("a", "two"), ("b", "three")]
+)
+print(df1.sort_values(by=("a", "two")))
+
+##############################################################
+# Copying
+##############################################################
+
+
+# The copy() method on pandas objects copies the underlying data (though not the axis indexes,
+# since they are immutable) and returns a new object. Note that it is seldom necessary to copy objects.
+# For example, there are only a handful of ways to alter a DataFrame in-place:
+#
+# Inserting, deleting, or modifying a column.
+# Assigning to the index or columns attributes.
+# For homogeneous data, directly modifying the values via the values attribute or advanced indexing.
+#
+# To be clear, no pandas method has the side effect of modifying your data; almost every method
+# returns a new object, leaving the original object untouched. If the data is modified,
+# it is because you did so explicitly.
+
+
+##############################################################
+# dtypes
+##############################################################
+
+
+# For the most part, pandas uses NumPy arrays and dtypes for Series or individual columns of a DataFrame.
+# NumPy provides support for float, int, bool, timedelta64[ns] and datetime64[ns] (note that NumPy
+# does not support timezone-aware datetimes).
+#
+# pandas and third-party libraries extend NumPy’s type system in a few places. This section describes
+# the extensions pandas has made internally. See Extension types for how to write your own extension
+# that works with pandas. See the ecosystem page for a list of third-party libraries that have
+# implemented an extension.
+#
+# The following table lists all of pandas extension types. For methods requiring dtype arguments,
+# strings can be specified as indicated. See the respective documentation sections for more on each type.
+
+
+# Kind of Data            Data Type           Scalar          Array                   String Aliases
+# tz-aware datetime       DatetimeTZDtype     Timestamp       arrays.DatetimeArray    'datetime64[ns, <tz>]'
+# Categorical             CategoricalDtype    (none)          Categorical             'category'
+# period (time spans)     PeriodDtype         Period          arrays.PeriodArray      'Period[<freq>]'
+#                                                             'period[<freq>]',
+# sparse                  SparseDtype         (none)          arrays.SparseArray      'Sparse', 'Sparse[int]', 'Sparse[float]'
+# intervals               IntervalDtype       Interval        arrays.IntervalArray    'interval', 'Interval', 'Interval[<numpy_dtype>]', 'Interval[datetime64[ns, <tz>]]', 'Interval[timedelta64[<freq>]]'
+# nullable integer        Int64Dtype, …       (none)          arrays.IntegerArray     'Int8', 'Int16', 'Int32', 'Int64', 'UInt8', 'UInt16', 'UInt32', 'UInt64'
+# nullable float          Float64Dtype, …     (none)          arrays.FloatingArray    'Float32', 'Float64'
+# Strings                 StringDtype         str             arrays.StringArray      'string'
+# Boolean (with NA)       BooleanDtype        bool            arrays.BooleanArray     'boolean'
+
+# pandas has two ways to store strings.
+#
+# object dtype, which can hold any Python object, including strings.
+#
+# StringDtype, which is dedicated to strings.
+#
+# Generally, we recommend using StringDtype. See Text data types for more.
+#
+# Finally, arbitrary objects may be stored using the object dtype, but should be avoided to the extent
+# possible (for performance and interoperability with other libraries and methods. See object conversion).
+#
+# A convenient dtypes attribute for DataFrame returns a Series with the data type of each column.
+
+dft = pd.DataFrame(
+    {
+        "A": np.random.rand(3),
+        "B": 1,
+        "C": "foo",
+        "D": pd.Timestamp("20010102"),
+        "E": pd.Series([1.0] * 3).astype("float32"),
+        "F": False,
+        "G": pd.Series([1] * 3, dtype="int8"),
+    }
+)
+print(dft)
+print(dft.dtypes)
+
+# On a Series object, use the dtype attribute.
+print(dft["A"].dtype)
+
+# If a pandas object contains data with multiple dtypes in a single column, the dtype of the column
+# will be chosen to accommodate all of the data types (object is the most general).
+
+print(pd.Series([1, 2, 3, 4, 5, 6.0]))
+print(pd.Series([1, 2, 3, 6.0, "foo"]))
+
+# The number of columns of each type in a DataFrame can be found by calling DataFrame.dtypes.value_counts().
+print(dft.dtypes.value_counts())
+
+# Numeric dtypes will propagate and can coexist in DataFrames. If a dtype is passed (either directly
+# via the dtype keyword, a passed ndarray, or a passed Series), then it will be preserved in DataFrame
+# operations. Furthermore, different numeric dtypes will NOT be combined. The following example will
+# give you a taste.
+
+df1 = pd.DataFrame(np.random.randn(8, 1), columns=["A"], dtype="float32")
+print(df1)
+print(df1.dtypes)
+
+df2 = pd.DataFrame(
+    {
+        "A": pd.Series(np.random.randn(8), dtype="float16"),
+        "B": pd.Series(np.random.randn(8)),
+        "C": pd.Series(np.random.randint(0, 255, size=8), dtype="uint8"),  # [0,255] (range of uint8)
+    }
+)
+print(df2)
+print(df2.dtypes)
+
+# defaults
+
+# By default integer types are int64 and float types are float64, regardless of platform
+# (32-bit or 64-bit). The following will all result in int64 dtypes.
+
+print(pd.DataFrame([1, 2], columns=["a"]).dtypes)
+print(pd.DataFrame({"a": [1, 2]}).dtypes)
+print(pd.DataFrame({"a": 1}, index=list(range(2))).dtypes)
+
+# Note that Numpy will choose platform-dependent types when creating arrays. The following
+# WILL result in int32 on 32-bit platform.
+
+frame = pd.DataFrame(np.array([1, 2]))
+print(frame.dtypes)
+
+# upcasting
+
+# Types can potentially be upcasted when combined with other types, meaning they are promoted
+# from the current type (e.g. int to float).
+
+df3 = df1.reindex_like(df2).fillna(value=0.0) + df2
+print(df3)
+print(df3.dtypes)
+
+# DataFrame.to_numpy() will return the lower-common-denominator of the dtypes, meaning
+# the dtype that can accommodate ALL of the types in the resulting homogeneous dtyped
+# NumPy array. This can force some upcasting.
+
+print(df3.to_numpy().dtype)
+
+# astype
+
+# You can use the astype() method to explicitly convert dtypes from one to another.
+# These will by default return a copy, even if the dtype was unchanged (pass copy=False
+# to change this behavior). In addition, they will raise an exception if the astype operation is invalid.
+#
+# Upcasting is always according to the NumPy rules. If two different dtypes are involved
+# in an operation, then the more general one will be used as the result of the operation.
+
+print(df3)
+print(df3.dtypes)
+print(df3.astype("float32").dtypes)
+
+# Convert a subset of columns to a specified type using astype().
+dft = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6], "c": [7, 8, 9]})
+dft[["a", "b"]] = dft[["a", "b"]].astype(np.uint8)
+print(dft)
+print(dft.dtypes)
+
+# Convert certain columns to a specific dtype by passing a dict to astype().
+dft1 = pd.DataFrame({"a": [1, 0, 1], "b": [4, 5, 6], "c": [7, 8, 9]})
+dft1 = dft1.astype({"a": np.bool_, "c": np.float64})
+print(dft1)
+print(dft1.dtypes)
+
+# When trying to convert a subset of columns to a specified type using astype() and loc(), upcasting occurs.
+#
+# loc() tries to fit in what we are assigning to the current dtypes, while [] will overwrite them taking
+# the dtype from the right hand side. Therefore the following piece of code produces the unintended result.
+
+dft = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6], "c": [7, 8, 9]})
+print(dft.loc[:, ["a", "b"]].astype(np.uint8).dtypes)
+dft.loc[:, ["a", "b"]] = dft.loc[:, ["a", "b"]].astype(np.uint8)
+print(dft.dtypes)
+
+# object conversion
+
+# pandas offers various functions to try to force conversion of types from the object dtype to other types.
+# In cases where the data is already of the correct type, but stored in an object array,
+# the DataFrame.infer_objects() and Series.infer_objects() methods can be used to soft convert
+# to the correct type.
+
+import datetime
+
+df = pd.DataFrame(
+    [
+        [1, 2],
+        ["a", "b"],
+        [datetime.datetime(2016, 3, 2), datetime.datetime(2016, 3, 2)],
+    ]
+)
+df = df.T
+print(df)
+print(df.dtypes)
+
+# Because the data was transposed the original inference stored all columns as object, which
+# infer_objects will correct.
+print(df.infer_objects().dtypes)
+
+# The following functions are available for one dimensional object arrays or scalars to perform
+# hard conversion of objects to a specified type:
+#
+# to_numeric() (conversion to numeric dtypes)
+
+m = ["1.1", 2, 3]
+print(pd.to_numeric(m))
+print(type(pd.to_numeric(m)))
+
+# to_datetime() (conversion to datetime objects)
+
+m = ["2016-07-09", datetime.datetime(2016, 3, 2)]
+print(pd.to_datetime(m))
+
+# to_timedelta() (conversion to timedelta objects)
+
+m = ["5us", pd.Timedelta("1day")]
+print(pd.to_timedelta(m))
+
+# To force a conversion, we can pass in an errors argument, which specifies how pandas should
+# deal with elements that cannot be converted to desired dtype or object. By default,
+# errors='raise', meaning that any errors encountered will be raised during the conversion process.
+# However, if errors='coerce', these errors will be ignored and pandas will convert problematic
+# elements to pd.NaT (for datetime and timedelta) or np.nan (for numeric). This might be
+# useful if you are reading in data which is mostly of the desired dtype (e.g. numeric, datetime),
+# but occasionally has non-conforming elements intermixed that you want to represent as missing:
+
+m = ["apple", datetime.datetime(2016, 3, 2)]
+print(pd.to_datetime(m, errors="coerce"))
+
+m = ["apple", 2, 3]
+print(pd.to_numeric(m, errors="coerce"))
+
+m = ["apple", pd.Timedelta("1day")]
+print(pd.to_timedelta(m, errors="coerce"))
+
+# In addition to object conversion, to_numeric() provides another argument downcast, which gives
+# the option of downcasting the newly (or already) numeric data to a smaller dtype, which can
+# conserve memory:
+
+m = ["1", 2, 3]
+print(pd.to_numeric(m, downcast="integer"))
+print(pd.to_numeric(m, downcast="signed"))
+print(pd.to_numeric(m, downcast="unsigned"))
+print(pd.to_numeric(m, downcast="float"))
+
+# As these methods apply only to one-dimensional arrays, lists or scalars; they cannot
+# be used directly on multi-dimensional objects such as DataFrames. However, with apply(),
+# we can “apply” the function over each column efficiently:
+
+df = pd.DataFrame([["2016-07-09", datetime.datetime(2016, 3, 2)]] * 2, dtype="O")
+print(df)
+print(df.apply(pd.to_datetime))
+df = pd.DataFrame([["1.1", 2, 3]] * 2, dtype="O")
+print(df)
+print(df.apply(pd.to_numeric))
+df = pd.DataFrame([["5us", pd.Timedelta("1day")]] * 2, dtype="O")
+print(df)
+print(df.apply(pd.to_timedelta))
+
+# gotchas
+
+# Performing selection operations on integer type data can easily upcast the data to floating.
+# The dtype of the input data will be preserved in cases where nans are not introduced.
+# See also Support for integer NA.
+
+dfi = df3.astype("int32")
+dfi["E"] = 1
+print(dfi)
+print(dfi.dtypes)
+casted = dfi[dfi > 0]
+print(casted)
+print(casted.dtypes)
+
+# While float dtypes are unchanged.
+
+dfa = df3.copy()
+dfa["A"] = dfa["A"].astype("float32")
+print(dfa.dtypes)
+casted = dfa[df2 > 0]
+print(casted)
+print(casted.dtypes)
+
+##############################################################
+# Selecting columns based on dtype
+##############################################################
+
+# The select_dtypes() method implements subsetting of columns based on their dtype.
+#
+# First, let’s create a DataFrame with a slew of different dtypes:
+
+df = pd.DataFrame(
+    {
+        "string": list("abc"),
+        "int64": list(range(1, 4)),
+        "uint8": np.arange(3, 6).astype("u1"),
+        "float64": np.arange(4.0, 7.0),
+        "bool1": [True, False, True],
+        "bool2": [False, True, False],
+        "dates": pd.date_range("now", periods=3),
+        "category": pd.Series(list("ABC")).astype("category"),
+    }
+)
+
+df["tdeltas"] = df.dates.diff()
+df["uint64"] = np.arange(3, 6).astype("u8")
+df["other_dates"] = pd.date_range("20130101", periods=3)
+df["tz_aware_dates"] = pd.date_range("20130101", periods=3, tz="US/Eastern")
+print(df)
+print(df.dtypes)
+
+# select_dtypes() has two parameters include and exclude that allow you to say “give me the columns
+# with these dtypes” (include) and/or “give the columns without these dtypes” (exclude).
+#
+# For example, to select bool columns:
+
+print(df.select_dtypes(include=[bool]))
+
+# You can also pass the name of a dtype in the NumPy dtype hierarchy:
+
+print(df.select_dtypes(include=["bool"]))
+
+# select_dtypes() also works with generic dtypes as well.
+#
+# For example, to select all numeric and boolean columns while excluding unsigned integers:
+
+print(df.select_dtypes(include=["number", "bool"], exclude=["unsignedinteger"]))
+
+# To select string columns you must use the object dtype:
+
+print(df.select_dtypes(include=["object"]))
+
+
+# To see all the child dtypes of a generic dtype like numpy.number you can define
+# a function that returns a tree of child dtypes:
+
+def subdtypes(dtype):
+    subs = dtype.__subclasses__()
+    if not subs:
+        return dtype
+    return [dtype, [subdtypes(dt) for dt in subs]]
+
+
+# All NumPy dtypes are subclasses of numpy.generic:
+print(subdtypes(np.generic))
+
+# pandas also defines the types category, and datetime64[ns, tz], which are not integrated
+# into the normal NumPy hierarchy and won’t show up with the above function.
